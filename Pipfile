@@ -1,0 +1,18 @@
+[[source]]
+
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+
+[packages]
+
+twisted = {extras = ["tls"], version = "==17.9.0"}
+attrs = "*"
+certifi = "*"
+
+
+[dev-packages]
+
+pylint = "*"
+mypy = "*"

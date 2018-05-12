@@ -1,0 +1,6 @@
+*egg*
+*.pyc
+dist
+build
+.pytest_cache
+.mypy*
