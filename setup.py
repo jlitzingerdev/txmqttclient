@@ -24,6 +24,7 @@ setup(
     ],
     install_requires=[
         'Twisted[tls]>=17.9.0',
+        'mqttpacket',
     ],
     package_dir={"": "src"},
     packages=find_packages("src"),
