@@ -114,7 +114,14 @@ class MQTTClient(protocol.Protocol):
         self.transport.write(msg)
 
 
-def connect_mqtt_tls(client_id, host, rootpath, port, client_creds=None):
+def connect_mqtt_tls(
+        client_id,
+        host,
+        rootpath,
+        port,
+        client_creds=None,
+        protocols=None,
+):
     """Connect an MQTT Client over TLS without client auth.
 
     :param host: The hostname to connect
@@ -129,6 +136,9 @@ def connect_mqtt_tls(client_id, host, rootpath, port, client_creds=None):
     :param client_creds: Client cert/key pair
     :type client_creds: ssl.PrivateCertificate
 
+    :param protocols: List of protocols for use with ALPN
+    :type protocols: List[bytes]
+
     """
     with open(rootpath, 'rb') as rootf:
         rootblob = rootf.read()
@@ -141,6 +151,7 @@ def connect_mqtt_tls(client_id, host, rootpath, port, client_creds=None):
         host,
         trustRoot=trust_root,
         clientCertificate=client_creds,
+        acceptableProtocols=protocols
     )
 
     endpoint = endpoints.SSL4ClientEndpoint(
