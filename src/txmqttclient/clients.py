@@ -24,21 +24,22 @@ class MQTTClient(protocol.Protocol):
     def __init__(self, client_id):
         self.client_id = client_id
         self._incoming = bytearray()
-        self._conn_d = defer.Deferred()
+        self._connack_d = defer.Deferred()
+        self._maintenance = None
 
-    def makeConnection(self, transport):
-        """Connect this protocol to the broker."""
-        self.log.info('Transport acquired, connect to broker')
+    def connect(self):
+        """Send a CONNECT to the broker.
+
+        :returns: Deferred that will fire when the broker connects
+            or will error if the connection is terminated.
+        """
+        self.log.info('Connect to broker')
         connpkt = mqttpacket.connect(self.client_id)
-        transport.write(connpkt)
+        if _logMQTT:
+            self.log.info("Connect: {bdata}", bdata=binascii.hexlify(connpkt))
 
-        def _on_broker_connect(_):
-            protocol.Protocol.makeConnection(self, transport)
-
-        def _on_error(failure):
-            return failure
-
-        self._conn_d.addCallbacks(_on_broker_connect, _on_error)
+        self.transport.write(connpkt)
+        return self._connack_d
 
     def connectionMade(self):
         self.log.info("Protocol Connected")
@@ -48,6 +49,8 @@ class MQTTClient(protocol.Protocol):
             "Connection dropped: {reason}",
             reason=reason.getErrorMessage()
         )
+        if not self._connack_d.called:
+            self._connack_d.errback(reason)
 
     def logPrefix(self):
         return "mqttclient"
@@ -55,6 +58,10 @@ class MQTTClient(protocol.Protocol):
     def _send_ping(self):
         msg = mqttpacket.pingreq()
         self.transport.write(msg)
+
+    def _start_maintenance(self):
+        self._maintenance = task.LoopingCall(self._send_ping)
+        self._maintenance.start(20, now=False)
 
     def dataReceived(self, data):
         if _logMQTT:
@@ -68,11 +75,9 @@ class MQTTClient(protocol.Protocol):
         for packet in packets:
             self.log.debug('Received packet {pkt}', pkt=packet)
             if packet.pkt_type == mqttpacket.MQTT_PACKET_CONNACK:
-                if not self.connected:
-                    self.connected = True
-                    t = task.LoopingCall(self._send_ping)
-                    t.start(20, now=False)
-                    self._conn_d.callback(True)
+                if not self._connack_d.called:
+                    self._connack_d.callback(self)
+                    self._start_maintenance()
 
         self._incoming = self._incoming[consumed:]
 
@@ -88,8 +93,25 @@ class MQTTClient(protocol.Protocol):
         ]
         subscription = mqttpacket.subscribe(1, tfs)
         if _logMQTT:
-            self.log.info(binascii.hexlify(subscription))
+            self.log.info(
+                'Subscribe: {subs}',
+                subs=binascii.hexlify(subscription)
+            )
         self.transport.write(subscription)
+
+    def publish(self, topic, message):
+        # (str, bytes) -> None
+        """Publish a message on a topic."""
+        if not isinstance(message, bytes):
+            raise TypeError('message must be bytes')
+
+        msg = mqttpacket.publish(topic, False, 0, False, message)
+        if _logMQTT:
+            self.log.info(
+                'Publish: {pub}',
+                pub=binascii.hexlify(msg)
+            )
+        self.transport.write(msg)
 
 
 def connect_mqtt_tls(client_id, host, rootpath, port, client_creds=None):
@@ -128,7 +150,13 @@ def connect_mqtt_tls(client_id, host, rootpath, port, client_creds=None):
         tls_options
     )
 
-    return endpoints.connectProtocol(
+    d = endpoints.connectProtocol(
         endpoint,
         MQTTClient(client_id)
     )
+
+    def _socket_connected(client):
+        return client.connect()
+
+    d.addCallback(_socket_connected)
+    return d
