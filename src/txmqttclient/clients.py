@@ -26,6 +26,7 @@ class MQTTClient(protocol.Protocol):
         self._incoming = bytearray()
         self._connack_d = defer.Deferred()
         self._maintenance = None
+        self._publish_packet = 12345
 
     def connect(self):
         """Send a CONNECT to the broker.
@@ -99,13 +100,20 @@ class MQTTClient(protocol.Protocol):
             )
         self.transport.write(subscription)
 
-    def publish(self, topic, message):
+    def publish(self, topic, message, qos=0):
         # (str, bytes) -> None
         """Publish a message on a topic."""
         if not isinstance(message, bytes):
             raise TypeError('message must be bytes')
 
-        msg = mqttpacket.publish(topic, False, 0, False, message)
+        msg = mqttpacket.publish(
+            topic,
+            False,
+            qos,
+            False,
+            message,
+            self._publish_packet,
+        )
         if _logMQTT:
             self.log.info(
                 'Publish: {pub}',
